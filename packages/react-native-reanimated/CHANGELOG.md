@@ -6,6 +6,8 @@
 
 ### 🛠 Breaking changes
 
+- Remove the `USE_SYNCHRONIZABLE_FOR_MUTABLES` feature flag. Mutables always use Synchronizable state now. ([#10298](https://github.com/software-mansion/react-native-reanimated/pull/10298) by [@tjzel](https://github.com/tjzel))
+
 ### 🎉 New features
 
 ### 🐛 Bug fixes
@@ -15,3 +17,4 @@
 - Fix crash when a CSS animation or transition runs between two keyword values on a property that also accepts relative lengths, such as `width` going from `auto` to `auto`. ([#10281](https://github.com/software-mansion/react-native-reanimated/pull/10281) by [@MatiPl01](https://github.com/MatiPl01))
 
 ### 💡 Others
+- Rename the internal `Mutable.setDirty` to `Mutable.setDirtyFlag`. ([#10261](https://github.com/software-mansion/react-native-reanimated/pull/10261) by [@tjzel](https://github.com/tjzel))
