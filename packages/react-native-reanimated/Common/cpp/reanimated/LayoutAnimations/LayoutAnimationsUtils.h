@@ -5,10 +5,9 @@
 #include <react/renderer/mounting/ShadowView.h>
 #include <reanimated/LayoutAnimations/LayoutAnimationsManager.h>
 
+#include <cstring>
 #include <memory>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
+#include <optional>
 #include <vector>
 
 namespace reanimated {
