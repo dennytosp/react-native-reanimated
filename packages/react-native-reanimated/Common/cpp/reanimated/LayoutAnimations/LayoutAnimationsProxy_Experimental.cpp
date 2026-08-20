@@ -5,6 +5,7 @@
 #include <reanimated/LayoutAnimations/LayoutAnimationsProxyRegistry.h>
 #include <reanimated/LayoutAnimations/LayoutAnimationsProxy_Experimental.h>
 #include <reanimated/Tools/ReanimatedSystraceSection.h>
+#include <worklets/Compat/StableApi.h>
 
 #include <algorithm>
 #include <memory>
@@ -54,6 +55,7 @@ std::optional<MountingTransaction> LayoutAnimationsProxy_Experimental::pullTrans
   TransactionMeta transaction;
   auto &filteredMutations = transaction.filteredMutations;
   auto rootChildCount = static_cast<int>(lightNodes_[surfaceId_]->children.size());
+  const bool flushStructuralMutations = shouldFlushStructuralMutations();
 
   reconcileContradictedRemovals(mutations, filteredMutations);
 
@@ -109,13 +111,17 @@ std::optional<MountingTransaction> LayoutAnimationsProxy_Experimental::pullTrans
     startLayoutAnimation(node, config);
   }
 
-  handleRemovals(filteredMutations, transaction.exiting);
+  handleRemovals(filteredMutations, transaction.exiting, flushStructuralMutations);
 
   flushLayoutAnimationOperations(lock);
 
   addOngoingAnimations(filteredMutations);
 
-  cleanupAnimations(transaction, propsParserContext);
+  cleanupAnimations(transaction, propsParserContext, flushStructuralMutations);
+
+#ifdef ANDROID
+  maybeScheduleCleanupPull(flushStructuralMutations);
+#endif
 
   insertContainers(transaction, rootChildCount);
 
@@ -436,7 +442,8 @@ std::optional<SurfaceId> LayoutAnimationsProxy_Experimental::endLayoutAnimation(
 
 void LayoutAnimationsProxy_Experimental::handleRemovals(
     ShadowViewMutationList &filteredMutations,
-    std::vector<std::shared_ptr<LightNode>> &roots) const {
+    std::vector<std::shared_ptr<LightNode>> &roots,
+    const bool flushStructuralMutations) const {
   ReanimatedSystraceSection s("handleRemovals");
   // iterate from the end, so that children
   // with higher indices appear first in the mutations list
@@ -474,6 +481,10 @@ void LayoutAnimationsProxy_Experimental::handleRemovals(
       cancelLayoutAnimation(node->current.tag);
       filteredMutations.push_back(ShadowViewMutation::DeleteMutation(node->current));
     }
+  }
+
+  if (!flushStructuralMutations) {
+    return;
   }
 
   std::vector<Tag> completedRemovalTags;
@@ -714,17 +725,34 @@ ShadowView LayoutAnimationsProxy_Experimental::cloneViewWithoutOpacity(
   return newView;
 }
 
+// Android's push model applies JS-thread transactions asynchronously on the UI
+// thread. A UI-thread pull can overtake them, so completed animations must not
+// add structural cleanup mutations there. This gate can go away with Android's
+// pull model.
+bool LayoutAnimationsProxy_Experimental::shouldFlushStructuralMutations() const {
+#ifdef ANDROID
+  return !worklets::isOnUIThread(uiScheduler_);
+#else
+  return true;
+#endif
+}
+
 void LayoutAnimationsProxy_Experimental::cleanupAnimations(
     TransactionMeta &transaction,
-    const PropsParserContext &propsParserContext) const {
+    const PropsParserContext &propsParserContext,
+    const bool flushStructuralMutations) const {
   ReanimatedSystraceSection s("cleanupAnimations");
-  for (const auto &entry : completedAnimations_) {
-    const auto tag = entry.first;
+  std::unordered_set<Tag> preservedContainerTags;
+  for (const auto &[tag, _] : completedAnimations_) {
     if (hasPendingLayoutAnimation(tag)) {
       continue;
     }
     const auto containerIt = sharedContainers_.find(tag);
     if (containerIt == sharedContainers_.end()) {
+      continue;
+    }
+    if (!flushStructuralMutations) {
+      preservedContainerTags.insert(tag);
       continue;
     }
     if (containerIt->second.restoreAfterNode) {
@@ -734,8 +762,26 @@ void LayoutAnimationsProxy_Experimental::cleanupAnimations(
   }
 
   cleanupSharedTransitions(transaction, propsParserContext);
-  cleanupCompletedAnimations(transaction.filteredMutations, propsParserContext, true);
+  cleanupCompletedAnimations(transaction.filteredMutations, propsParserContext, true, preservedContainerTags);
 }
+
+#ifdef ANDROID
+bool LayoutAnimationsProxy_Experimental::hasPendingStructuralCleanup() const {
+  return std::ranges::any_of(completedAnimations_, [this](const auto &entry) {
+    const auto &[tag, completedAnimation] = entry;
+    return !hasPendingLayoutAnimation(tag) && (completedAnimation.shouldRemove || sharedContainers_.contains(tag));
+  });
+}
+
+void LayoutAnimationsProxy_Experimental::maybeScheduleCleanupPull(const bool flushedStructuralMutations) const {
+  if (flushedStructuralMutations) {
+    cleanupPullScheduled_ = false;
+  } else if (hasPendingStructuralCleanup() && !cleanupPullScheduled_) {
+    cleanupPullScheduled_ = true;
+    scheduleCleanupPull();
+  }
+}
+#endif
 
 // MARK: Start Animation
 

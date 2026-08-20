@@ -399,7 +399,8 @@ std::optional<ShadowView> LayoutAnimationsProxyCommon::reparentLayoutAnimation(c
 void LayoutAnimationsProxyCommon::cleanupCompletedAnimations(
     ShadowViewMutationList &mutations,
     const PropsParserContext &propsParserContext,
-    const bool preserveRemovals) const {
+    const bool preserveRemovals,
+    const std::unordered_set<Tag> &preservedTags) const {
 #ifdef ANDROID
   std::vector<OpacityRestoration> opacityRestorations;
 #endif
@@ -410,7 +411,7 @@ void LayoutAnimationsProxyCommon::cleanupCompletedAnimations(
       ++it;
       continue;
     }
-    if (preserveRemovals && completedAnimation.shouldRemove) {
+    if ((preserveRemovals && completedAnimation.shouldRemove) || preservedTags.contains(tag)) {
       ++it;
       continue;
     }
