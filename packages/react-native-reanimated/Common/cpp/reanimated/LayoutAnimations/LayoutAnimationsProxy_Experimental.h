@@ -168,7 +168,7 @@ struct LayoutAnimationsProxy_Experimental : public LayoutAnimationsProxyCommon {
   void startSurface(const facebook::react::ShadowTree &shadowTree) override;
   std::optional<SurfaceId> onTransitionProgress(int tag, double progress, bool isClosing, bool isGoingForward) override;
   std::optional<SurfaceId> onGestureCancel(int tag) override;
-  void surfaceDidUnmount() override;
+  void clearSurfaceState() const override;
 
   void maybeCancelAnimation(const int tag) const;
 
